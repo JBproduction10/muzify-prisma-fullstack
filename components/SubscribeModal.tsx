@@ -1,123 +1,124 @@
-'use client'
+"use client";
 
-import {useState} from 'react';
-import {toast} from 'react-hot-toast';
+import React, { useState } from 'react';
+import { toast } from 'react-hot-toast';
 
 import useSubscribeModal from '@/hooks/useSubscribeModal';
 import { useUser } from '@/hooks/useUser';
-import {postData} from '@/libs/helpers';
-import {getStripe} from '@/libs/stripeClient';
+import { postData } from '@/libs/helpers';
+import { getStripe } from '@/libs/stripeClient';
 import { Price, ProductWithPrice } from '@/types';
 
 import Modal from './Modal';
 import Button from './Button';
 
-interface SubscribeModalProps{
-    products: ProductWithPrice[]
+interface SubscribeModalProps {
+  products: ProductWithPrice[];
 }
 
-const formatPrice = (price: Price) =>{
-    const priceString = new Intl.NumberFormat('en-US',{
-        style: 'currency',
-        currency:price.currency,
-        minimumFractionDigits: 0
-    }).format((price?.unit_amount || 0) / 100);
+const formatPrice = (price: Price) => {
+  const priceString = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: price.currency,
+    minimumFractionDigits: 0
+  }).format((price?.unit_amount || 0) / 100);
 
-    return priceString;
+  return priceString;
 };
 
-const SubscribeModal: React.FC<SubscribeModalProps>=({
-    products
-}) =>{
-    const SubscribeModal = useSubscribeModal();
-    const {user, isLoading, subscription} = useUser();
 
-    const [priceIdLoading, setPriceIdLoading] = useState<string>();
+const SubscribeModal: React.FC<SubscribeModalProps> = ({
+  products
+}) => {
+  const subscribeModal = useSubscribeModal();
+  const { user, isLoading, subscription } = useUser();
 
-    const onChange = (open: boolean) =>{
-        if(!open){
-            SubscribeModal.onClose();
-        }
+  const [priceIdLoading, setPriceIdLoading] = useState<string>();
+
+  const onChange = (open: boolean) => {
+    if (!open) {
+      subscribeModal.onClose();
+    }
+  }
+
+  const handleCheckout = async (price: Price) => {
+    setPriceIdLoading(price.id);
+    if (!user) {
+      setPriceIdLoading(undefined);
+      return toast.error('Must be logged in');
     }
 
-    const handleCheckout = async (price: Price) =>{
-        setPriceIdLoading(price.id);
-        if(!user){
-            setPriceIdLoading(undefined);
-            return toast.error('Must be logged in');
-        }
+    if (subscription) {
+      setPriceIdLoading(undefined);
+      return toast('Already subscribed');
+    }
 
-        if(subscription){
-            setPriceIdLoading(undefined)
-            return toast('Already subcribed');
-        }
+    try {
+      const { sessionId } = await postData({
+        url: '/api/create-checkout-session',
+        data: { price }
+      });
 
-        try{
-            const {sessionId} = await postData({
-                url: '/api/create-checkout-session',
-                data: {price}
-            });
+      const stripe = await getStripe();
+      stripe?.redirectToCheckout({ sessionId });
+    } catch (error) {
+      return toast.error((error as Error)?.message);
+    } finally {
+      setPriceIdLoading(undefined);
+    }
+  };
 
-            const stripe = await getStripe();
-            stripe?.redirectToCheckout({sessionId});
-        }catch(error){
-            return toast.error((error as Error)?.message);
-        }finally{
-            setPriceIdLoading(undefined)
-        }
-    };
+  let content = (
+    <div className="text-center">
+      No products available.
+    </div>
+  )
 
-    let content = (
-        <div className='text-center'>
-            No products available.
-        </div>
+  if (products.length) {
+    content = (
+      <div>
+        {products.map((product) => {
+          if (!product.prices?.length) {
+            return (
+              <div key={product.id}>
+                No prices available
+              </div>
+            );
+          }
+
+          return product.prices.map((price) => (
+            <Button 
+              key={price.id} 
+              onClick={() => handleCheckout(price)}
+              disabled={isLoading || price.id === priceIdLoading}
+              className="mb-4"
+            >
+              {`Subscribe for ${formatPrice(price)} a ${price.interval}`}
+            </Button>
+          ))
+        })}
+      </div>
     )
+  }
 
-    if(products.length){
-        content = (
-            <div>
-                {products.map((product) =>{
-                    if(!product.prices?.length){
-                        return(
-                            <div key={product.id}>
-                                No prices available
-                            </div>
-                        );
-                    }
-
-                    return product.prices.map((price) =>(
-                        <Button
-                            key={price.id}
-                            onClick={() => handleCheckout(price)}
-                            disabled={isLoading || price.id === priceIdLoading}
-                            className='mb-4'
-                        >
-                            {`Subscribe for ${formatPrice(price)} a ${price.interval}`}
-                        </Button>
-                    ))
-                })}
-            </div>
-        )
-    }
-
-    if(subscription){
-        content=(
-            <div className='text-center'>
-                Alreday subcribed.
-            </div>
-        )
-    }
-
-    return(
-        <Modal
-            title='Only for premium users'
-            description='Listen to your favourit music with Muziy Premium'
-            isOpen={SubscribeModal.isOpen}
-            onChange={onChange}
-        >
-            {content}
-        </Modal>
+  if (subscription) {
+    content = (
+      <div className="text-center">
+        Already subscribed.
+      </div>
     )
+  }
+
+  return (
+    <Modal
+      title="Only for premium users"
+      description="Listen to music with Spotify Premium"
+      isOpen={subscribeModal.isOpen}
+      onChange={onChange}
+    >
+      {content}
+    </Modal>
+  );
 }
 
 export default SubscribeModal;
